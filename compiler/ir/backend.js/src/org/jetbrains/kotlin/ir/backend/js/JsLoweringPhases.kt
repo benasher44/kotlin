@@ -399,7 +399,8 @@ private val objectUsageLoweringPhase = makeJsModulePhase(
 val jsPhases = namedIrModulePhase(
     name = "IrModuleLowering",
     description = "IR module lowering",
-    lower = validateIrBeforeLowering then
+    lower = removeReceiverLowering then
+            validateIrBeforeLowering then
             testGenerationPhase then
             expectDeclarationsRemovingPhase then
             stripTypeAliasDeclarationsPhase then
