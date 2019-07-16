@@ -25,4 +25,3 @@ sourceSets {
 publish()
 
 standardPublicJars()
-
