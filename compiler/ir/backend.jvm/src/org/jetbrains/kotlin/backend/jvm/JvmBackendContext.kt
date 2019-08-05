@@ -42,6 +42,7 @@ class JvmBackendContext(
 ) : CommonBackendContext {
     override val transformedFunction: MutableMap<IrFunctionSymbol, IrSimpleFunctionSymbol>
         get() = TODO("not implemented")
+    override val scriptMode: Boolean = false
 
     override val builtIns = state.module.builtIns
     override val declarationFactory: JvmDeclarationFactory = JvmDeclarationFactory(state)
