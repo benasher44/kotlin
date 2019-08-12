@@ -14,6 +14,7 @@ import org.jetbrains.kotlin.cli.common.ExitCode.OK
 import org.jetbrains.kotlin.cli.common.arguments.K2JSCompilerArguments
 import org.jetbrains.kotlin.cli.common.arguments.K2JsArgumentConstants
 import org.jetbrains.kotlin.cli.common.config.addKotlinSourceRoot
+import org.jetbrains.kotlin.cli.common.extensions.ScriptEvaluationExtension
 import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSeverity.*
 import org.jetbrains.kotlin.cli.common.messages.MessageCollector
 import org.jetbrains.kotlin.cli.common.messages.MessageUtil
@@ -39,6 +40,7 @@ import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.serialization.js.ModuleKind
 import org.jetbrains.kotlin.utils.JsMetadataVersion
 import org.jetbrains.kotlin.utils.KotlinPaths
+import org.jetbrains.kotlin.utils.PathUtil
 import org.jetbrains.kotlin.utils.join
 import java.io.File
 import java.io.IOException
@@ -66,6 +68,30 @@ class K2JsIrCompiler : CLICompiler<K2JSCompilerArguments>() {
     ): ExitCode {
         val messageCollector = configuration.getNotNull(CLIConfigurationKeys.MESSAGE_COLLECTOR_KEY)
 
+        val environmentForJS =
+            KotlinCoreEnvironment.createForProduction(rootDisposable, configuration, EnvironmentConfigFiles.JS_CONFIG_FILES)
+
+        val pluginLoadResult = loadPlugins(paths, arguments, configuration)
+        if (pluginLoadResult != ExitCode.OK) return pluginLoadResult
+
+        //TODO: add to configuration everything that may come in handy at script compiler and use it there
+        if (arguments.scriptPath != null) {
+            configuration.put(CommonConfigurationKeys.MODULE_NAME, "repl.kts")
+
+            val environment = KotlinCoreEnvironment.getOrCreateApplicationEnvironmentForProduction(rootDisposable, configuration)
+            val projectEnv = KotlinCoreEnvironment.ProjectEnvironment(rootDisposable, environment)
+            projectEnv.registerExtensionsFromPlugins(configuration)
+
+            val scriptingEvaluators = ScriptEvaluationExtension.getInstances(projectEnv.project)
+            val scriptingEvaluator = scriptingEvaluators.find { it.isAccepted(arguments) }
+            if (scriptingEvaluator == null) {
+                messageCollector.report(ERROR, "Unable to evaluate script, no scripting plugin loaded")
+                return COMPILATION_ERROR
+            }
+
+            return scriptingEvaluator.eval(arguments, configuration, projectEnv)
+        }
+
         if (arguments.freeArgs.isEmpty() && !IncrementalCompilation.isEnabledForJs()) {
             if (arguments.version) {
                 return OK
@@ -73,13 +99,6 @@ class K2JsIrCompiler : CLICompiler<K2JSCompilerArguments>() {
             messageCollector.report(ERROR, "Specify at least one source file or directory", null)
             return COMPILATION_ERROR
         }
-
-        val pluginLoadResult = PluginCliParser.loadPluginsSafe(
-            arguments.pluginClasspaths,
-            arguments.pluginOptions,
-            configuration
-        )
-        if (pluginLoadResult != OK) return pluginLoadResult
 
         val libraries: List<String> = configureLibraries(arguments.libraries)
         val friendLibraries: List<String> = configureLibraries(arguments.friendModules)
@@ -92,9 +111,6 @@ class K2JsIrCompiler : CLICompiler<K2JSCompilerArguments>() {
         for (arg in arguments.freeArgs) {
             configuration.addKotlinSourceRoot(arg, commonSources.contains(arg))
         }
-
-        val environmentForJS =
-            KotlinCoreEnvironment.createForProduction(rootDisposable, configuration, EnvironmentConfigFiles.JS_CONFIG_FILES)
 
         val project = environmentForJS.project
         val sourcesFiles = environmentForJS.getSourceFiles()
@@ -193,6 +209,37 @@ class K2JsIrCompiler : CLICompiler<K2JSCompilerArguments>() {
         }
 
         return OK
+    }
+
+    private fun loadPlugins(paths: KotlinPaths?, arguments: K2JSCompilerArguments, configuration: CompilerConfiguration): ExitCode {
+        var pluginClasspaths: Iterable<String> = arguments.pluginClasspaths?.asIterable() ?: emptyList()
+        val pluginOptions = arguments.pluginOptions?.toMutableList() ?: ArrayList()
+
+        val explicitOrLoadedScriptingPlugin =
+            pluginClasspaths.any { File(it).name.startsWith(PathUtil.KOTLIN_SCRIPTING_COMPILER_PLUGIN_NAME) } ||
+                    try {
+                        PluginCliParser::class.java.classLoader.loadClass("org.jetbrains.kotlin.extensions.ScriptingCompilerConfigurationExtension")
+                        true
+                    } catch (_: Throwable) {
+                        false
+                    }
+        if (!explicitOrLoadedScriptingPlugin) {
+            val kotlinPaths = paths ?: PathUtil.kotlinPathsForCompiler
+            val libPath = kotlinPaths.libPath.takeIf { it.exists() && it.isDirectory } ?: File(".")
+            val (jars, missingJars) =
+                PathUtil.KOTLIN_SCRIPTING_PLUGIN_CLASSPATH_JARS.mapNotNull { File(libPath, it) }.partition { it.exists() }
+            if (missingJars.isEmpty()) {
+                pluginClasspaths = jars.map { it.canonicalPath } + pluginClasspaths
+            } else {
+                val messageCollector = configuration.getNotNull(CLIConfigurationKeys.MESSAGE_COLLECTOR_KEY)
+                messageCollector.report(
+                    LOGGING,
+                    "Scripting plugin will not be loaded: not all required jars are present in the classpath (missing files: $missingJars)"
+                )
+            }
+        }
+
+        return PluginCliParser.loadPluginsSafe(pluginClasspaths, pluginOptions, configuration)
     }
 
     override fun setupPlatformSpecificArgumentsAndServices(

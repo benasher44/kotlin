@@ -3,7 +3,7 @@
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
-package kotlin.script.jsrepl
+package org.jetbrains.kotlin.scripting.repl.js
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.project.Project
@@ -15,7 +15,7 @@ import org.jetbrains.kotlin.cli.common.messages.AnalyzerWithCompilerReport
 import org.jetbrains.kotlin.cli.common.messages.CompilerMessageLocation
 import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSeverity
 import org.jetbrains.kotlin.cli.common.messages.MessageCollector
-import org.jetbrains.kotlin.cli.common.repl.ReplCodeLine
+import org.jetbrains.kotlin.cli.common.repl.*
 import org.jetbrains.kotlin.cli.jvm.compiler.EnvironmentConfigFiles
 import org.jetbrains.kotlin.cli.jvm.compiler.KotlinCoreEnvironment
 import org.jetbrains.kotlin.config.CompilerConfiguration
@@ -30,12 +30,12 @@ import org.jetbrains.kotlin.ir.descriptors.IrBuiltIns
 import org.jetbrains.kotlin.ir.util.ExternalDependenciesGenerator
 import org.jetbrains.kotlin.ir.util.SymbolTable
 import org.jetbrains.kotlin.js.config.JSConfigurationKeys
-import org.jetbrains.kotlin.library.KotlinLibrary
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi2ir.Psi2IrTranslator
 import org.jetbrains.kotlin.scripting.resolve.ScriptLightVirtualFile
 import org.jetbrains.kotlin.serialization.js.ModuleKind
 import org.jetbrains.kotlin.utils.addToStdlib.firstIsInstanceOrNull
+import java.util.concurrent.locks.ReentrantReadWriteLock
 import kotlin.script.experimental.api.*
 import kotlin.script.experimental.host.FileBasedScriptSource
 import kotlin.script.experimental.host.StringScriptSource
@@ -45,12 +45,11 @@ import kotlin.script.experimental.host.StringScriptSource
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
-class KJsReplCompiler(private val configuration: CompilerConfiguration, klib: KotlinLibrary, disposable: Disposable) {
+class KJsReplCompiler(private val configuration: CompilerConfiguration, disposable: Disposable) : ReplCompiler {
     private val environment = KotlinCoreEnvironment.createForProduction(
         disposable, configuration, EnvironmentConfigFiles.JS_CONFIG_FILES
     )
-
-    private val analyzerEngine = JsReplCodeAnalyzer(environment, klib)
+    private val analyzerEngine = JsReplCodeAnalyzer(environment)
     private val symbolTable = SymbolTable()
     private val deserializer: JsIrLinker
     private val context: JsIrBackendContext
@@ -59,7 +58,7 @@ class KJsReplCompiler(private val configuration: CompilerConfiguration, klib: Ko
 
     private val deserializedModuleFragments: List<IrModuleFragment>
 
-    val jsCode = mutableListOf<String>()
+    val stdlibCompiledResult: String
 
     init {
         val messageCollector = configuration[CLIConfigurationKeys.MESSAGE_COLLECTOR_KEY] as MessageCollector
@@ -70,7 +69,12 @@ class KJsReplCompiler(private val configuration: CompilerConfiguration, klib: Ko
         val lineNumber = 0
         val codeLine = makeReplCodeLine(lineNumber, snippet)
         val sourceCode = StringScriptSource(snippet, "line-$lineNumber.kts")
-        val snippetKtFile = getScriptKtFile(sourceCode, snippet, environment.project, messageCollector)?.valueOrNull()
+
+        val snippetKtFile = getScriptKtFile(
+            sourceCode,
+            snippet,
+            environment.project
+        ).valueOrNull()
         require(snippetKtFile != null)
 
         analyzerEngine.analyzeReplLine(snippetKtFile, codeLine).also {
@@ -129,26 +133,37 @@ class KJsReplCompiler(private val configuration: CompilerConfiguration, klib: Ko
         )
 
         namer = pair.first
-        jsCode.add(pair.second)
+        stdlibCompiledResult = pair.second
 
         deserializer.isReplInitializing = false
     }
 
-    fun generateJsByReplSnippet(
-        snippet: String,
-        snippetId: Int
-    ): String {
-        val messageCollector = configuration[CLIConfigurationKeys.MESSAGE_COLLECTOR_KEY] as ReplMessageCollector
+    override fun createState(lock: ReentrantReadWriteLock): IReplStageState<*> {
+        return JsState(lock)
+    }
+
+    override fun check(state: IReplStageState<*>, codeLine: ReplCodeLine): ReplCheckResult {
+        return ReplCheckResult.Ok()
+    }
+
+    override fun compile(state: IReplStageState<*>, codeLine: ReplCodeLine): ReplCompileResult {
+        val snippet = codeLine.code
+        val snippetId = codeLine.no
+
+        val messageCollector = configuration[CLIConfigurationKeys.MESSAGE_COLLECTOR_KEY] as MessageCollector
 
         setIdeaIoUseFallback()
 
-        val codeLine = makeReplCodeLine(snippetId, snippet)
         val sourceCode = StringScriptSource(snippet, "line-$snippetId.kts")
-        val snippetKtFile = getScriptKtFile(sourceCode, snippet, environment.project, messageCollector)?.valueOrNull() ?: return "Error"
+        val snippetKtFile = getScriptKtFile(
+            sourceCode,
+            snippet,
+            environment.project
+        ).valueOr { return ReplCompileResult.Error(it.reports.joinToString { r -> r.message }) }
 
         analyzerEngine.analyzeReplLine(snippetKtFile, codeLine).also {
             AnalyzerWithCompilerReport.reportDiagnostics(it, messageCollector)
-            require(!messageCollector.hasErrors(), messageCollector::getMessage)
+            if (messageCollector.hasErrors()) return ReplCompileResult.Error("Error while analysis")
         }
 
         val psi2ir = Psi2IrTranslator(environment.configuration.languageVersionSettings)
@@ -172,8 +187,10 @@ class KJsReplCompiler(private val configuration: CompilerConfiguration, klib: Ko
             namer
         )
 
-        jsCode.add(code)
-        return code
+        return createCompileResult(
+            LineId(codeLine),
+            code
+        )
     }
 }
 
@@ -211,9 +228,8 @@ class ReplMessageCollector : MessageCollector {
 fun getScriptKtFile(
     script: SourceCode,
     scriptText: String,
-    project: Project,
-    messageCollector: MessageCollector
-): ResultWithDiagnostics<KtFile>? {
+    project: Project
+): ResultWithDiagnostics<KtFile> {
     val psiFileFactory: PsiFileFactoryImpl = PsiFileFactory.getInstance(project) as PsiFileFactoryImpl
     val virtualFile = ScriptLightVirtualFile(
         script.name!!,
@@ -222,16 +238,20 @@ fun getScriptKtFile(
     )
     val ktFile = psiFileFactory.trySetupPsiForFile(virtualFile, KotlinLanguage.INSTANCE, true, false) as KtFile?
     return when {
-        ktFile == null -> null.also { messageCollector.report(CompilerMessageSeverity.ERROR, "KtFile is null") }
-        ktFile.declarations.firstIsInstanceOrNull<KtScript>() == null -> null.also {
-            messageCollector.report(
-                CompilerMessageSeverity.ERROR,
-                "There is not Script"
+        ktFile == null -> ResultWithDiagnostics.Failure(
+            ScriptDiagnostic(
+                message = "Cannot create PSI",
+                severity = ScriptDiagnostic.Severity.ERROR
             )
-        }
+        )
+        ktFile.declarations.firstIsInstanceOrNull<KtScript>() == null -> ResultWithDiagnostics.Failure(
+            ScriptDiagnostic(
+                message = "There is not Script",
+                severity = ScriptDiagnostic.Severity.ERROR
+            )
+        )
         else -> ktFile.asSuccess()
     }
 }
 
-internal fun makeReplCodeLine(no: Int, code: String): ReplCodeLine =
-    ReplCodeLine(no, 0, code)
+fun makeReplCodeLine(no: Int, code: String): ReplCodeLine = ReplCodeLine(no, 0, code)

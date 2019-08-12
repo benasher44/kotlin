@@ -3,7 +3,7 @@
  * Use of this source code is governed by the Apache 2.0 license that can be found in the license/LICENSE.txt file.
  */
 
-package kotlin.script.jsrepl
+package org.jetbrains.kotlin.scripting.repl.js
 
 import org.jetbrains.kotlin.builtins.KotlinBuiltIns
 import org.jetbrains.kotlin.cli.common.repl.ReplCodeLine
@@ -30,12 +30,16 @@ import org.jetbrains.kotlin.resolve.*
 import org.jetbrains.kotlin.resolve.diagnostics.Diagnostics
 import org.jetbrains.kotlin.resolve.lazy.declarations.FileBasedDeclarationProviderFactory
 import org.jetbrains.kotlin.scripting.compiler.plugin.repl.ReplCodeAnalyzer
+import org.jetbrains.kotlin.scripting.configuration.ScriptingConfigurationKeys
 import org.jetbrains.kotlin.scripting.definitions.ScriptPriorities
 import org.jetbrains.kotlin.serialization.js.KotlinJavascriptSerializationUtil
 import org.jetbrains.kotlin.serialization.js.PackagesWithHeaderMetadata
 import org.jetbrains.kotlin.utils.JsMetadataVersion
+import kotlin.script.experimental.api.ScriptCompilationConfiguration
+import kotlin.script.experimental.api.dependencies
+import kotlin.script.experimental.jvm.JsDependency
 
-class JsReplCodeAnalyzer(private val environment: KotlinCoreEnvironment, private val klib: KotlinLibrary) {
+class JsReplCodeAnalyzer(private val environment: KotlinCoreEnvironment) {
 
     private val replState = ReplCodeAnalyzer.ResettableAnalyzerState()
     val trace: BindingTraceContext = NoScopeRecordCliBindingTrace()
@@ -55,9 +59,11 @@ class JsReplCodeAnalyzer(private val environment: KotlinCoreEnvironment, private
     private fun createTopDownAnalyzerJS(files: Collection<KtFile>): LazyTopDownAnalyzer {
         val config = JsConfig(environment.project, environment.configuration)
         val moduleName = config.configuration[CommonConfigurationKeys.MODULE_NAME]!!
+        val scriptConfig = config.configuration[ScriptingConfigurationKeys.SCRIPT_DEFINITIONS]!!
+        val scriptCompilationConfig = scriptConfig.find { (it).platform == "JS" }!!.compilationConfiguration
 
         if (builtIns == null) {
-            dependencies = listOf(klib)
+            dependencies = scriptCompilationConfig[ScriptCompilationConfiguration.dependencies]!!.map { loadKlib((it as JsDependency).path) }
             builtIns = createBuiltIns(dependencies, files.toList())
         }
 
