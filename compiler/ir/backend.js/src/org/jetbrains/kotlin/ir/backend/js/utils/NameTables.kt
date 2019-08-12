@@ -283,9 +283,6 @@ class NameTables(
     }
 
     private fun generateNameForMemberFunction(declaration: IrSimpleFunction) {
-        if (declaration.getJsNameOrKotlinName().asString().contains("max")) {
-            print("")
-        }
         when (val signature = functionSignature(declaration)) {
             is StableNameSignature -> memberNames.declareStableName(signature, signature.name)
             is ParameterTypeBasedSignature -> {

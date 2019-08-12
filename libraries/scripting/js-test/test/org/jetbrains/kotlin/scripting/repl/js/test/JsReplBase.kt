@@ -26,15 +26,6 @@ class JsReplBase(disposable: Disposable, klib: KotlinLibrary) {
     private var snippetId: Int = 1 //index 0 for libs
     fun newSnippetId(): Int = snippetId++
 
-    fun dumpJsCode() {
-        val path = "" //set path for dump here
-        for (i in compiler.jsCode.indices) {
-            val writer = BufferedWriter(OutputStreamWriter(FileOutputStream("$path/line_$i.js")))
-            writer.write(compiler.jsCode[i])
-            writer.close()
-        }
-    }
-
     init {
         collector = ReplMessageCollector()
 

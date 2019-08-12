@@ -22,9 +22,9 @@ import org.jetbrains.kotlin.utils.addIfNotNull
 class IrModuleToJsTransformer(
     private val backendContext: JsIrBackendContext,
     private val mainFunction: IrSimpleFunction?,
-    private val mainArguments: List<String>?
+    private val mainArguments: List<String>?,
+    private val generateScriptModule: Boolean = false
 ) : BaseIrElementToJsNodeTransformer<JsNode, Nothing?> {
-    var generateScriptModule = false
 
     val moduleName = backendContext.configuration[CommonConfigurationKeys.MODULE_NAME]!!
     private val moduleKind = backendContext.configuration[JSConfigurationKeys.MODULE_KIND]!!
