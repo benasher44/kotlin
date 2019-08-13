@@ -18,7 +18,7 @@ import java.util.regex.Pattern
 
 abstract class AbstractBytecodeTextTest : CodegenTestCase() {
     override fun doMultiFileTest(wholeFile: File, files: List<TestFile>) {
-        val isIgnored = InTextDirectivesUtils.isIgnoredTarget(getBackend(), wholeFile)
+        val isIgnored = InTextDirectivesUtils.isIgnoredTarget(backend, wholeFile)
         createEnvironmentWithMockJdkAndIdeaAnnotations(
             ConfigurationKind.ALL,
             files,
@@ -32,7 +32,7 @@ abstract class AbstractBytecodeTextTest : CodegenTestCase() {
         } else {
             val expected = readExpectedOccurrences(wholeFile.path)
             val actual = generateToText("helpers/")
-            checkGeneratedTextAgainstExpectedOccurrences(actual, expected, getBackend(), !isIgnored)
+            checkGeneratedTextAgainstExpectedOccurrences(actual, expected, backend, !isIgnored)
         }
     }
 
@@ -47,7 +47,7 @@ abstract class AbstractBytecodeTextTest : CodegenTestCase() {
             assertTextWasGenerated(expectedOutputFile, generated)
             val generatedText = generated[expectedOutputFile]!!
             val expectedOccurrences = expectedOccurrencesByOutputFile[expectedOutputFile]!!
-            checkGeneratedTextAgainstExpectedOccurrences(generatedText, expectedOccurrences, getBackend(), reportProblems)
+            checkGeneratedTextAgainstExpectedOccurrences(generatedText, expectedOccurrences, backend, reportProblems)
         }
     }
 

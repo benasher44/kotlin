@@ -18,7 +18,6 @@ package org.jetbrains.kotlin.codegen
 
 import com.intellij.openapi.util.text.StringUtil
 import org.jetbrains.kotlin.psi.KtFile
-import org.jetbrains.kotlin.test.InTextDirectivesUtils
 import org.jetbrains.kotlin.test.KotlinTestUtils
 import org.jetbrains.kotlin.test.testFramework.KtUsefulTestCase
 import org.jetbrains.org.objectweb.asm.*
@@ -30,7 +29,6 @@ import kotlin.collections.ArrayList
 abstract class AbstractLineNumberTest : CodegenTestCase() {
 
     override fun doMultiFileTest(wholeFile: File, files: MutableList<TestFile>) {
-        val isIgnored = InTextDirectivesUtils.isIgnoredTarget(getBackend(), wholeFile)
         val isCustomTest = wholeFile.parentFile.name.equals("custom", ignoreCase = true)
         if (!isCustomTest) {
             files.add(createLineNumberDeclaration())
@@ -49,9 +47,7 @@ abstract class AbstractLineNumberTest : CodegenTestCase() {
                 KtUsefulTestCase.assertSameElements(actualLineNumbers, expectedLineNumbers)
             }
         } catch (e: Throwable) {
-            if (!isIgnored) {
-                println(classFileFactory.createText())
-            }
+            printReport(wholeFile)
             throw e
         }
     }

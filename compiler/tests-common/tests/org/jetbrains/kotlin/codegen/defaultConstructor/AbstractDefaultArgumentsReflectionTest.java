@@ -19,7 +19,6 @@ package org.jetbrains.kotlin.codegen.defaultConstructor;
 import com.intellij.openapi.util.io.FileUtil;
 import org.jetbrains.kotlin.codegen.CodegenTestCase;
 import org.jetbrains.kotlin.test.ConfigurationKind;
-import org.jetbrains.kotlin.test.InTextDirectivesUtils;
 
 import java.io.File;
 import java.io.IOException;
@@ -40,7 +39,6 @@ public abstract class AbstractDefaultArgumentsReflectionTest extends CodegenTest
         loadFileByFullPath(path);
 
         File file = new File(path);
-        boolean isIgnored = InTextDirectivesUtils.isIgnoredTarget(getBackend(), file);
         String fileText = FileUtil.loadFile(file, true);
         String className = loadInstructionValue(fileText, "CLASS");
         boolean hasDefaultConstructor = loadInstructionValue(fileText, "HAS_DEFAULT_CONSTRUCTOR").equals("true");
@@ -56,16 +54,12 @@ public abstract class AbstractDefaultArgumentsReflectionTest extends CodegenTest
         }
         catch (NoSuchMethodException e) {
             if (hasDefaultConstructor) {
-                if (!isIgnored) {
-                    System.out.println(generateToText());
-                }
+                printReport(file);
                 throw new AssertionError("Cannot find default constructor");
             }
         }
         catch (Throwable e) {
-            if (!isIgnored) {
-                System.out.println(generateToText());
-            }
+            printReport(file);
             throw new RuntimeException(e);
         }
     }

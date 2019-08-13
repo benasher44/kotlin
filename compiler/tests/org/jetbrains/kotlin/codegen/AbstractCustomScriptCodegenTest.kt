@@ -49,7 +49,6 @@ abstract class AbstractCustomScriptCodegenTest : CodegenTestCase() {
     }
 
     override fun doMultiFileTest(wholeFile: File, files: MutableList<TestFile>) {
-        val isIgnored = InTextDirectivesUtils.isIgnoredTarget(getBackend(), wholeFile)
         if (files.size > 1) {
             throw UnsupportedOperationException("Multiple files are not yet supported in this test")
         }
@@ -86,9 +85,7 @@ abstract class AbstractCustomScriptCodegenTest : CodegenTestCase() {
             val expectedFields = extractAllKeyValPairs(content, "expected:")
             checkExpectedFields(expectedFields, scriptClass, scriptInstance)
         } catch (e: Throwable) {
-            if (!isIgnored) {
-                println(generateToText())
-            }
+            printReport(wholeFile)
             throw e
         }
     }

@@ -875,4 +875,11 @@ public abstract class CodegenTestCase extends KtUsefulTestCase {
 
         return new TestProxy(Integer.valueOf(BOX_IN_SEPARATE_PROCESS_PORT), aClass.getCanonicalName(), classPath).runTest();
     }
+
+    protected void printReport(File wholeFile) {
+        boolean isIgnored = InTextDirectivesUtils.isIgnoredTarget(getBackend(), wholeFile);
+        if (!isIgnored) {
+            System.out.println(generateToText());
+        }
+    }
 }

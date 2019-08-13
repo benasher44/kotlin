@@ -19,7 +19,6 @@ package org.jetbrains.kotlin.codegen
 import com.intellij.openapi.util.text.StringUtil
 import junit.framework.TestCase
 import org.jetbrains.kotlin.backend.common.output.OutputFileCollection
-import org.jetbrains.kotlin.test.InTextDirectivesUtils
 import org.jetbrains.kotlin.test.KotlinTestUtils
 import org.jetbrains.org.objectweb.asm.*
 import java.io.File
@@ -31,8 +30,6 @@ import java.util.regex.Pattern
  */
 abstract class AbstractCheckLocalVariablesTableTest : CodegenTestCase() {
     override fun doMultiFileTest(wholeFile: File, files: List<TestFile>) {
-        val isIgnored = InTextDirectivesUtils.isIgnoredTarget(getBackend(), wholeFile)
-
         compile(files)
 
         try {
@@ -52,9 +49,7 @@ abstract class AbstractCheckLocalVariablesTableTest : CodegenTestCase() {
 
             doCompare(wholeFile, files.single().content, actualLocalVariables)
         } catch (e: Throwable) {
-            if (!isIgnored) {
-                println(classFileFactory.createText())
-            }
+            printReport(wholeFile)
             throw e
         }
     }
